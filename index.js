@@ -1,10 +1,9 @@
-
-var Events = require('./events')
+var Events = require('events').EventEmitter
+var StateTransitionSystem = require('state-transition-system')
 var select = require('selector/functional')
 var inherits = require('inherits')
 var remove = require('browser-tools/manipulate/remove')
-var on = require('browser-tools/events/on')
-var off = require('browser-tools/events/off')
+var propagate = require('propagate')
 
 inherits(Widget, Events)
 function Widget(options) {
@@ -12,49 +11,53 @@ function Widget(options) {
 
     this.el = options.el
     this.$ = select(el)
-    this._delegated = []
-    this.delegateEvents(this.events)
+    this._stateMachine = new StateTransitionSystem(this.transitions || {})
+    this._stateMachineProp = propagate(this._stateMachine, this)
+
+    if (this.transitions) {
+      this._addTransitions(this.transitions)
+    }
 }
 
 Widget.prototype = {
-    delegateEvents: delegateEvents
-  , undelegateEvents: undelegateEvents
   , remove: remove
-  , _delegated: []
+  , become: become
+  , _addTransitions: addTransitions
+  , _stateMachine: {}
+  , _stateMachineProp: {}
 }
 
-var eventSplitter = /([^\s]+)\s(.*)/
-function delegateEvents(events) {
-    this.undelegateEvents()
-    if (events) {
-        for (var k in events) {
-            var matched = k.match(eventSplitter)
-            var fn = events[k]
-            if (typeof fn === 'string') {
-                fn = this[fn]
-            }
-            this.$(on, matched[1], matched[2], fn)
-            this.delegated.push([matched[1], matched[2], fn])
-        }
-    }
-    return this
-}
-
-function undelegateEvents() {
-    for (var i = 0; i < this.delegated.length; i++) {
-        this.$(off, this.delegated[i][0], this.delegated[i][1],
-            this.delegated[i][2])
-    }
-
-    this.delegated = []
-    return this
+function become(state) {
+    this._stateMachine.become(state)
 }
 
 function remove() {
-    this.undelegateEvents()
-        .off()
-        .stopListening()
+    this._stateMachineProp.end()
+    this._stateMachine.release()
+    this.removeAllListeners()
         .$(remove)
+}
+
+function addTransitions(transitions) {
+    var self = this
+    for (var key in transitions) {
+        var rules = key.split(' ')
+        var fns = transition[key]
+        if (typeof fns === 'string') {
+            fns = fns.split(' ')
+        }
+
+        fns = fns.map(function(fn) {
+            if (typeof fn === 'string') {
+                fn = self[fn].bind(self)
+            }
+            return fn
+        })
+
+        for (var i = 0; i < fns.length; i++) {
+            self._stateMachine.addTransition(rules[0], rules[1], fns[i])
+        }
+    }
 }
 
 module.exports = Widget
